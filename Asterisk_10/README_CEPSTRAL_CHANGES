@@ -5,25 +5,33 @@ http://www.cepstral.com
 
 ------------------------------------------------------------------------
 With much gratitude to Darren Session for his previous efforts, Cepstral 
-Engineers made some minor changes to app_swift facilitating Asterisk 
+engineers made some minor changes to app_swift facilitating Asterisk 
 integration for Cepstral 6 - Telephony TTS server.  This version of 
 app_swift is NOT backwards compatible with earlier Cepstral products. 
 
-This document reviews those changes and provides a diff log
+This document reviews those changes and provides a diff log.
 ---------------------------------------------------------------------------
 
-1.  Ceptral completely revamped Swift's concurrency synthesis handler.  The 
+1.  Cepstral completely revamped Swift's concurrency synthesis handler.  The 
     number of possible concurrent synthesis ports exactly reflects the number 
-    in the license.  When that hard limit was exceeded building a queue 
-    internal to swift did not work because app_swift did not know its request 
-    was being queued and so timed out, then crashed Asterisk.  
+    in the license.  When that hard limit was exceeded, building a queue 
+    internal to swift would crash Asterisk because app_swift did not know 
+    its request was being queued and so started trying to use audio data that
+    was not there.  
 
     Therefore, Swift now rejects requests when there are not enough ports.  
     Because of the multi-threaded nature of app_swift's use of swift, swift 
-    does not fully exit until generating is done or interrupted.  This meant 
+    does not fully exit until generating is done or interrupted.  This means 
     the only way to send a SWIFT_PORT_UNAVAILABLE message back to app_swift 
-    was to use event handling.  Therefore, we changed the event handling 
-    components including the callback function and the event mask.
+    was to use event handling.  And so, we changed the event handling 
+    components including the callback function and the event mask to catch
+    the SWIFT_PORT_UNAVAILABLE error.
+
+    On SWIFT_PORT_UNAVAILABLE app_swift prints a warning to the logs.
+    There might be better things to do here on an individual PBX (e.g. play hold
+    music and try again in a few second), but a general solution seems 
+    inappropriate, since Asterisk administrators should be managing their own
+    call queues anyway.  
 
 2.  We wanted to have a much stronger association between ports and calls, so 
     swift can now associate an Asterisk channel with a synthesis port.  
