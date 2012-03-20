@@ -13,11 +13,23 @@
  * at the top of the source tree.
  */
 
+/*
+ *
+ * As noted below, some  minor changes were made by 
+ * Adam Wayment while employed by Cepstral, LLC.
+ * These changes are commented with the prefix CEPSTRAL_CHANGE. 
+ *
+ * Copyright (C) 2012, Cepstral LLC.  All rights reserved.
+ *
+ * http://www.cepstral.com
+ *
+ */
+
 /*! \file
  *
  * \brief Cepstral Swift text-to-speech engine interface
  *
- * \author Darren Sessions <darrensessions@me.com> 
+ * \author Darren Sessions <darrensessions@me.com>
  *
  * \note This module requires the Cepstral engine to be installed in
  * it's default location (/opt/swift)
@@ -35,6 +47,11 @@
 ASTERISK_FILE_VERSION(__FILE__, "$Revision: 492 $")
 
 #include <swift.h>
+/* CEPSTRAL_CHANGE: New code by Cepstral
+ *      Additional header added by so swift_register_ast_chan is available 
+ */ 
+#include <swift_asterisk_interface.h>
+/* CEPSTRAL_CHANGE:  End new code by Cepstral */			
 
 #include <math.h>
 
@@ -205,6 +222,22 @@ static swift_result_t swift_cb(swift_event *event, swift_event_t type, void *uda
 		ASTOBJ_WRLOCK(ps);
 		ps->generating_done = 1;
 		ASTOBJ_UNLOCK(ps);
+/* CEPSTRAL_CHANGE:  New code by Cepstral  */		
+	} else if (type == SWIFT_EVENT_ERROR) {
+		/* Error events are used to communicate to app_swift that there are no more swift_ports available.
+		 *   So check to make sure that is the cause of the error signal, then terminate. 
+		 *
+                 * Termination may not be the best behavoir, but any queuing should be managed on the Asterisk side.   
+                 */
+		swift_result_t error_code;
+		if ((swift_event_get_error(event, &error_code, NULL)==SWIFT_SUCCESS) && (error_code == SWIFT_PORT_UNAVAILABLE))
+		{
+			ast_log(LOG_WARNING, "Received SWIFT_EVENT_ERROR with code: SWIFT_PORT_UNAVAILABLE.  There are no ports available for simultaneous synthesis.  All licensed ports are already in use.\n");
+			ASTOBJ_WRLOCK(ps);
+			ps->generating_done = 1;
+			ASTOBJ_UNLOCK(ps);
+		}
+/* CEPSTRAL_CHANGE:  End new code by Cepstral */			
 	} else {
 		ast_log(LOG_DEBUG, "UNKNOWN callback\n");
 	}
@@ -336,12 +369,29 @@ static int app_exec(struct ast_channel *chan, const char *data)
 		ast_log(LOG_ERROR, "Failed to open Swift Port.\n");
 		goto exception;
 	}
+
+/* CEPSTRAL_CHANGE: New code by Cepstral */	
+	if (port!=NULL)
+	{
+        
+        /* This registers a chan with swift, otherwise through repeated DTMF+synth requests 
+         * a single call could consume all available concurrent synthesis ports.
+         */
+		swift_register_ast_chan(port, chan);
+	}
+/* CEPSTRAL_CHANGE: End new code by Cepstral */	
+	
+	
 	if ((voice = swift_port_set_voice_by_name(port, cfg_voice)) == NULL) {
 		ast_log(LOG_ERROR, "Failed to set voice.\n");
 		goto exception;
 	}
 
-	event_mask = SWIFT_EVENT_AUDIO | SWIFT_EVENT_END;
+/* CEPSTRAL_CHANGE: New code by Cepstral */	
+	// Added SWIFT_EVENT_ERROR to the event mask to catch SWIFT_PORT_UNAVAILABLE 
+	event_mask = SWIFT_EVENT_AUDIO | SWIFT_EVENT_END | SWIFT_EVENT_ERROR;
+/* CEPSTRAL_CHANGE: End new code by Cepstral */		
+
 	swift_port_set_callback(port, &swift_cb, event_mask, ps);
 
 	if (SWIFT_FAILED(swift_port_speak_text(port, text, 0, NULL, &tts_stream, NULL))) {
@@ -462,7 +512,10 @@ static int app_exec(struct ast_channel *chan, const char *data)
 						pbx_builtin_setvar_helper(chan, "SWIFT_DTMF", results);
 					}
 				}
-				ast_frfree(f);
+	/* CEPSTRAL_CHANGE: Code snip added by Cepstral to prevent segfault on hangup*/
+				if (f!=NULL)
+	/* CEPSTRAL_CHANGE: End Code snip by Cepstral*/
+				  ast_frfree(f);
 			}
 		}
 
