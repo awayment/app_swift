@@ -1,0 +1,107 @@
+README_CEPSTRAL_CHANGES
+
+Copyright (C) 2012, Cepstral LLC.  All rights reserved.
+http://www.cepstral.com
+
+------------------------------------------------------------------------
+With much gratitude to Darren Session for his previous efforts, Cepstral 
+engineers made some minor changes to app_swift facilitating Asterisk 
+integration for Cepstral 6 - Telephony TTS server.  This version of 
+app_swift is NOT backwards compatible with earlier Cepstral products. 
+
+This document reviews those changes and provides a diff log.
+---------------------------------------------------------------------------
+
+1.  Cepstral completely revamped Swift's concurrency synthesis handler.  The 
+    number of possible concurrent synthesis ports exactly reflects the number 
+    in the license.  When that hard limit was exceeded, building a queue 
+    internal to swift would crash Asterisk because app_swift did not know 
+    its request was being queued and so started trying to use audio data that
+    was not there.  
+
+    Therefore, Swift now rejects requests when there are not enough ports.  
+    Because of the multi-threaded nature of app_swift's use of swift, swift 
+    does not fully exit until generating is done or interrupted.  This means 
+    the only way to send a SWIFT_PORT_UNAVAILABLE message back to app_swift 
+    was to use event handling.  And so, we changed the event handling 
+    components including the callback function and the event mask to catch
+    the SWIFT_PORT_UNAVAILABLE error.
+
+    On SWIFT_PORT_UNAVAILABLE app_swift prints a warning to the logs.
+    There might be better things to do here on an individual PBX (e.g. play hold
+    music and try again in a few second), but a general solution seems 
+    inappropriate, since Asterisk administrators should be managing their own
+    call queues anyway.  
+
+2.  We wanted to have a much stronger association between ports and calls, so 
+    swift can now associate an Asterisk channel with a synthesis port.  
+    'swift_register_ast_chan(port, chan)' gives the desired one-to-one 
+    relationship between concurrency ports and Asterisk channels.  Without
+    this it would be possible for a single caller to use all possible ports by
+    using DTMF interrupts to repeatedly restart synthesis requests before the 
+    synthesis port is released.
+
+3.  When the client hangs-up, app_swift sometimes tries to free a null frame.  
+    A fix was added.
+-----------------
+19,30d18
+< /*
+<  *
+<  * As noted below, some  minor changes were made by 
+<  * Adam Wayment while employed by Cepstral, LLC.
+<  * These changes are commented with the prefix CEPSTRAL_CHANGE. 
+<  *
+<  * Copyright (C) 2012, Cepstral LLC.  All rights reserved.
+<  *
+<  * http://www.cepstral.com
+<  *
+<  */
+< 
+50,51d37
+< // Additional header added by Cepstral so swift_register_ast_chan is available 
+< #include <swift_asterisk_interface.h>
+222,237d207
+< /* CEPSTRAL_CHANGE:  New code by Cepstral  */		
+< 	} else if (type == SWIFT_EVENT_ERROR) {
+< 		/* Error events are used to communicate to app_swift that there are no more swift_ports available.
+< 		 *   So check to make sure that is the cause of the error signal, then terminate. 
+< 		 *
+<                  * Termination may not be the best behavoir, but any queuing should be managed on the Asterisk side.   
+<                  */
+< 		swift_result_t error_code;
+< 		if ((swift_event_get_error(event, &error_code, NULL)==SWIFT_SUCCESS) && (error_code == SWIFT_PORT_UNAVAILABLE))
+< 		{
+< 			ast_log(LOG_WARNING, "Received SWIFT_EVENT_ERROR with code: SWIFT_PORT_UNAVAILABLE.  There are no ports available for simultaneous synthesis.  All licensed ports are already in use.\n");
+< 			ASTOBJ_WRLOCK(ps);
+< 			ps->generating_done = 1;
+< 			ASTOBJ_UNLOCK(ps);
+< 		}
+< /* CEPSTRAL_CHANGE:  End new code by Cepstral */			
+366,377d335
+< 
+< /* CEPSTRAL_CHANGE: New code by Cepstral */	
+< 	if (port!=NULL)
+< 	{
+<         
+<         /* This registers a chan with swift, otherwise through repeated DTMF+synth requests 
+<          * a single call could consume all available concurrent synthesis ports.
+<          */
+< 		swift_register_ast_chan(port, chan);
+< 	}
+< /* CEPSTRAL_CHANGE: End new code by Cepstral */	
+<     
+383,387c341
+< /* CEPSTRAL_CHANGE: New code by Cepstral */	
+< 	// Added SWIFT_EVENT_ERROR to the event mask to catch SWIFT_PORT_UNAVAILABLE 
+< 	event_mask = SWIFT_EVENT_AUDIO | SWIFT_EVENT_END | SWIFT_EVENT_ERROR;
+< /* CEPSTRAL_CHANGE: End new code by Cepstral */	  
+<     
+---
+> 	event_mask = SWIFT_EVENT_AUDIO | SWIFT_EVENT_END;
+506,509c460
+<  	/* CEPSTRAL_CHANGE: Code snip added by Cepstral to prevent segfault on hangup*/
+< 				if (f!=NULL)
+< 	/* CEPSTRAL_CHANGE: End Code snip by Cepstral*/
+< 				  ast_frfree(f);
+---
+> 					ast_frfree(f);
