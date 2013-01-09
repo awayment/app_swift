@@ -43,7 +43,7 @@ all: $(RES)
 	@echo ""
 
 $(NAME).so : $(NAME).o
-	$(CC) $(SOLINK) -o $@ $(LDFLAGS) $<
+	$(CC) $(SOLINK) -o $@ $< $(LDFLAGS)
 
 clean:
 	rm -f $(NAME).o $(NAME).so
